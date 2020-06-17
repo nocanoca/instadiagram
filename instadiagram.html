@@ -1,0 +1,552 @@
+<html>
+<head>
+	<style>
+		#page {
+			background-color:#81DAF5;
+		}
+		
+		.alphaArc {
+			stroke: red;
+			fill: none;
+		}
+	</style>
+		
+	 <script type='text/javascript'>
+		 
+		 //TECHNICAL JUNK
+		 var NS = "http://www.w3.org/2000/svg";
+		 
+		 //global tolerance for deciding, eg, intersection, etc.
+		 var tolerance = 5;
+		 
+		 //TESTING FUNCTIONS
+		 function clickedCoords(){
+			 var page = document.getElementById("page");
+        	 var dim = page.getBoundingClientRect();
+        	 var x = event.clientX - dim.left;
+			 var y = event.clientY - dim.top;
+			 console.log(x+','+y);
+			 return [x,y];
+		 }
+		 
+		 //AUXILIARY FUNCTIONS
+		 function dist(coord1, coord2){
+			 return Math.sqrt((coord1[0]-coord2[0])*(coord1[0]-coord2[0])+(coord1[1]-coord2[1])*(coord1[1]-coord2[1]))
+		 }
+		 		 
+		 //DRAWING FUNCTIONALITY
+		 
+		 //turns a list into a string, for use in parsing in argument of paths.
+		 function coordString(list){
+			 var string = list[0].toString();
+			 var numbercoords = list.length;
+			 for (var i = 1; i < list.length; i++) {
+				 string += (','+list[i].toString());
+			 }
+			 return string;
+		 }
+		 		 
+		 var cornersize = 10;
+		 
+		 //gets nodes by a corner.
+		 function cornerNodes(a,b,c){
+			 distab = dist(a,b);
+			 distbc = dist(b,c);
+			 //if (distab > cornersize && distbc > cornersize){
+				 
+				 //}
+		 }
+		 
+		 
+		 //creates oriented path from a list of nodes it goes through. path is a concatenation of quadratic beziers.
+ 		function makePath(keynodeslist, smoothing=0.1){
+			var nodeslist = chainSmooth(keynodeslist, smoothing);
+			
+			var page = document.getElementById("page");
+			var thepath = document.createElementNS(NS, "path");
+			
+			
+			//change for altering gradient/angles.
+			//var controlpoint = [52.5, 10];
+			
+			//number of keynodes. is equal to half the number of nodes.
+			var numberkeynodes = keynodeslist.length;
+			
+			thepath.setAttribute("class", "alphaArc");
+			
+			//makes a correct 'd' string out of the nodeslist for passing to the path. start by initialising start point.
+			var datastring = "M "+coordString(nodeslist[0]);
+
+			//now we populate the rest. the point is that we essentially use the initial 'corners' of the polygon as the key nodes, and for nodes we take the vertices of the clipped polygon. the syntax is that the first thing after Q is the keynode, then the next thing is the subsequent vertex. the 'T' says to draw a straight line to the next vertex (corresponding to a genuine edge of the original polygon) and then we repeat the loop, drawing the curved corner and the next edge.
+			if (numberkeynodes > 1){
+   				for (var i = 0; i < numberkeynodes-1; i++) {
+   					datastring += ' Q '+ coordString(keynodeslist[i]) + ' '+ coordString(nodeslist[2*i+1]) + ' T ' + coordString(nodeslist[2*i+2]);
+   			 	}
+			}
+						
+			thepath.setAttribute("d", datastring);
+
+			//adds path to the page
+			page.appendChild(thepath);
+ 		}
+		
+ 		function makePLPath(nodeslist){
+			var page = document.getElementById("page");
+			var thepath = document.createElementNS(NS, "path");
+			
+			//change for altering gradient/angles.
+			var controlpoint = [52.5, 10];
+			
+			//number of nodes.
+			var numbernodes = nodeslist.length;
+			
+			thepath.setAttribute("class", "alphaArc");
+			
+			//makes a correct 'd' string out of the nodeslist for passing to the path. start by initialising start point.
+			var datastring = "M "+coordString(nodeslist[0]);
+			
+			//now if i have any more nodes, i can just add them on the end with T inbetween. T says to use the same control point as the first one, to make life easier.
+			if (numbernodes > 2){
+   				for (var i = 1; i < numbernodes; i++) {
+   					datastring += (' L '+ coordString(nodeslist[i]));
+   			 	}
+			}
+			
+			
+			thepath.setAttribute("d", datastring);
+			
+			//adds path to the page
+			page.appendChild(thepath);
+ 		}
+		
+		
+		//draw a specified point. takes point as coords as array.
+		function drawPoint(point){
+			//how big do you want the point?
+			radius = 2;
+			
+			thepoint = document.createElementNS(NS, "circle");
+			thepoint.setAttribute("cx", point[0]);
+			thepoint.setAttribute("cy", point[1]);
+			thepoint.setAttribute("r", radius);
+			
+			page.appendChild(thepoint);
+		}
+		
+		//USER INPUT HANDLING
+		//creates path based on vertices where user clicks.
+		
+		var drawingpath = false;
+		var thepath = false;
+		
+		function pageClick(){
+			coords = clickedCoords();
+			if (drawingpath == true){
+				continuePath(coords);
+			}
+		}
+		
+		function startPath(){
+			coords = clickedCoords();
+			
+			if (drawingpath == false){
+				drawingpath = true;
+				drawPoint(coords);
+				thepath = [coords];
+			}
+			
+
+		}
+		
+		function continuePath(coords){
+				if (dist(thepath[0], coords) < tolerance){
+					coords = thepath[0];
+					thepath.push(coords);
+					
+					makePLPath(thepath);
+					makePath(thepath, 0.5);
+					thepath = false;
+					drawingpath = false;
+				}
+				else {
+					thepath.push(coords);
+					drawPoint(coords);
+				}
+		
+		}
+		
+		// MATHS ALGORITHMS AND FUNCTIONS
+		// POLYGON HANDLING
+		
+		//Trapezium decomposition. This is an intermediate step in triangulation. follows Gian Paolo Lorenzetto, Amitava Datta, and Richard Thomas.
+		//determines directions to throw sweep lines in. this is 'First stage'.
+		
+		//returns cup, cap, monotonedown, monotoneup  redundant
+		// or hooks. convention is that 'hook' has the level segment coming second.
+		// or crooks. convention is that 'crook' has level segment first.
+		// uphook has level segment at top. downhook has level segment at bottom.
+		//shapes roughly taken from zalik-clapworthy a universal trapezoidation algorithm for planar polygons
+		function pointNature(a, b, c){
+			//have a cap
+			if (a[1] < b[1] && c[1] < b[1]){
+				return 'cap';
+			}
+			else if (a[1] > b[1] && c[1] > b[1]){
+				return 'cup';
+			}
+			else if (a[1] > b[1] && c[1] < b[1]){
+				return 'monotonedown';
+			}
+			else if (a[1] < b[1] && c[1] > b[1]){
+				return 'monotoneup';
+			}
+			else if (a[1] == b[1] && c[1] > b[1]){
+				return 'upcrook';
+			}
+			else if (a[1] > b[1] && c[1] == b[1]){
+				return 'downhook';
+			}
+			else if (a[1] == b[1] && c[1] < b[1]){
+				return 'downcrook';
+			}
+			else if (a[1] < b[1] && c[1] == b[1]){
+				return 'uphook';
+			}
+			else if (a[1]==b[1] && c[1] == b[1]){
+				return 'redundant';
+			}
+			else {
+				console.log('oh no something is very wrong with the point nature');
+				return false;
+			}
+			
+		}
+		
+		function localOrientation(a, b, c){
+			var arc1 = arcBetween(a, b);
+			var arc2 = arcBetween(b, c);
+			//embed into R^3
+			arc1.push(0);
+			arc2.push(0);
+			//cross product detects whether or not the orientation is positive or negative, when you view as living in the xy-plane in R^3.
+			return -Math.sign(crossProduct(arc1, arc2)[2]);
+		}
+		
+
+		//returns b (for both), l or r, or n (for neither) depending on orientation.
+		function sweepDirection(pointnature, orientation, localorientation){
+			//if anticlockwise
+			if (orientation == 1){ 
+				if (orientation == localorientation){
+					if (pointnature == 'cap'){
+						return 'n';
+					}
+					else if (pointnature == 'cup'){
+						return 'n'; 
+					}
+					else if (pointnature == 'monotoneup'){
+						return 'l'; 
+					}
+					else if  (pointnature == 'monotonedown'){
+						return 'r';
+					}
+					else if (pointnature == 'upcrook'){
+						return 'n'; 
+					}
+					else if (pointnature == 'downhook'){
+						return 'n';
+					}
+					else if (pointnature == 'downcrook'){
+						return 'n';
+					}
+					else if (pointnature == 'uphook'){
+						return 'n'
+					}
+					else if (pointnature == 'redundant'){
+						return false;
+					}			
+				}
+				else {
+					if (pointnature == 'cap'){
+						return 'b';
+					}
+					else if (pointnature == 'cup'){
+						return 'b'; 
+					}
+					else if (pointnature == 'monotoneup'){
+						return 'l'; 
+					}
+					else if  (pointnature == 'monotonedown'){
+						return 'r';
+					}
+					else if (pointnature == 'upcrook'){
+						return 'l'; 
+					}
+					else if (pointnature == 'downhook'){
+						return 'r';
+					}
+					else if (pointnature == 'downcrook'){
+						return 'r';
+					}
+					else if (pointnature == 'uphook'){
+						return 'l'
+					}
+					else if (pointnature == 'redundant'){
+						return false;
+					}			
+				}
+			}
+			else {
+				console.log('oh no wrong orientation');
+			}
+		}
+		
+		function crossProduct(u, v){
+			return [u[1]*v[2] - u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+		}
+		
+		function arcBetween(p,q){
+			return [q[0]-p[0], q[1]-p[1]];
+		}
+		
+		
+		//returns -1 or +1. +1 is anticlockwise, -1 is clockwise.
+		function findOrientation(polygon){
+			//find  globalmaximum. picks rightmost if tie. uses spread syntax.
+			//not sure if need to pick rightmost.
+			var ys = polygon.map(function(vertex) {
+    return vertex[1];
+});
+
+			var maxheight = Math.max(...ys);
+			var maximums = polygon.filter(vertex => vertex[1] == maxheight);
+			var xs = maximums.map(function(vertex) {
+    return vertex[0];
+	});
+			var maxright = Math.max(...xs);
+            maxima = maximums.filter(vertex => vertex[0] == maxright)[0];			
+			indexmaxima = polygon.indexOf(maxima);
+
+			//handles edge cases.
+			if (indexmaxima == 0){
+				before = polygon[polygon.length - 2];
+				after = polygon[1];
+			}
+			else if (indexmaxima == polygon.length - 1){
+				before = polygon[polygon.length - 2];
+				after = polygon[1];
+			}
+			//otherwise get the prev and next points
+			else {
+
+				before = polygon[indexmaxima-1];
+				after = polygon[indexmaxima+1];
+			}
+			var arc1 = arcBetween(before, maxima);
+			var arc2 = arcBetween(maxima, after);
+			return localOrientation(before, maxima, after);
+			
+		}
+		
+		
+		function sweepDirections(polygon){
+			var vertices = polygon;
+			var novertices = polygon.length-1;
+			var orientation = findOrientation(polygon);
+			//if anticlockwise
+			if (orientation == 1){
+				//handles edge case.
+				directions = [sweepDirection(pointNature(polygon[novertices-1], polygon[0], polygon[1]), 1, localOrientation(polygon[novertices-1], polygon[0], polygon[1]))];
+				for (i = 1; i < novertices; i++) {
+					sweepdirection = sweepDirection(pointNature(polygon[i-1], polygon[i], polygon[i+1]),1, localOrientation(polygon[i-1], polygon[i], polygon[i+1]));
+					directions.push(sweepdirection);
+				}
+			
+			}
+			return directions;
+			
+			
+		}
+		
+		function getNeighbours(vertex, polygon){
+			var vertindex = polygon.findIndex(vertex);
+			var novertices = polygon.length-1;
+			//if first vertex
+			if (vertindex == 0 || vertindex == novertices+1){
+				//gets vertex before final one, which is copy of first, and next vertex
+				return [polygon[novertices], polygon[1]];
+			}
+			else {
+				return [polygon[vertindex-1], polygon[vertindex]];
+			}
+		}
+		
+		function trapDecomposition(polygon){
+			//creates copy. this is shallow copy; entries still point to the same vertices. if you modify a vertex it will modify in both.
+			//note this omits the final vertex which is a duplicate of the first.
+			
+			var vertices = polygon.slice(0,polygon.length-1);
+			var directions = sweepDirections(polygon);
+			
+			//builds array from vertices and directions, so we can keep them together when we sort.
+			for (i = 0; i<vertices.length; i++){
+				vertices[i] = [vertices[i], directions[i]];
+			}
+			console.log(vertices);
+			
+			//sorts in descending y coordinate.
+			vertices.sort(function(a, b){return b[0][1]-a[0][1]});
+			console.log(vertices);
+			
+			//START OF STAGE 2.
+			edgelist = [];
+			
+		}
+		
+		//finds the intersection points between two piecewise linear paths
+		//implements algorithm in Park, Shin, Choi: A sweep line algorithm for polygonal chain intersection and its applications
+		//a 'chain' is a PL arc.
+		
+		//binary search implementation
+		//returns the positions in the array where num lives between. if num is already in list, return false.
+		function binaryComparison(num, array){
+			var l = 0
+			var r = array.length -1;
+			while (l < r-1){
+				var mid = Math.floor((l+r)/2);
+				if (array[mid] < num){
+					l = mid;
+				}
+				else if (array[mid] > num){
+					r = mid;
+				}
+				else {
+					
+					//returns false if we hit spot on.
+					return false;
+				}
+			}
+			return [l,r];
+		
+		}
+		
+		
+		function sweepLineIntersection(x, p, q){
+			var m = (p[1]-q[1])/(p[0]-q[0]);
+			var c = p[1]-m*p[0];
+			return m*x+c;
+		}
+		
+		//first, implements intersection of 'monotone chains'. this is p.315 of PSC. assumes no triple points, only double points.
+		function monotoneChainIntersection(){
+			//casts the arguments to an array because javascript is weird.
+			var chains = Array.from(arguments);
+			
+			//reposition mc-ACL. just sorts by the initial vertices. might need to do something else fancier to properly implement.
+			chains.sort(function(a, b){return a[0][0]-b[0][0]});
+			
+			//initialises front vertices. this makes the FIRST ENTRY in every chain equal to the position of its front vertex; here, we initialise that to be one.
+			chains.map(x => x.unshift(1));
+			
+			
+			
+			var sweepingchains = [];
+			var intersections = [];
+			
+			if (chains.length != 0){
+				chain = chains[0];
+				//gets the frontvertex, in position stored at the beginning of the chain.
+				var frontvertexposition = chain[0];
+				var vert = chains[0][frontvertexposition];
+
+				leftmost = false;
+				if (frontvertexposition == 1){
+					leftmost = true;
+				}
+
+				
+				///now advance the frontvertex
+				chains[0][0] = frontvertexposition+ 1;
+				
+				//now reorder by the x co-ordinate of the frontvertex.
+				chains.sort(function(a, b){return a[a[0]][0]-b[b[0]][0]});
+				
+				//now do cases.
+				//if vert was the left-most vertex of its chain, then it's not yet been put in sweeping chains
+				if (leftmost){
+					var testinterval = [0,0];
+					
+					//put it in sweepingchains, in the correct position by its sweepline intersection.
+					for (i = 0; i < sweepingchains.length; i++) {
+						//gets the y-value of the current sweeping chain between its frontvert and the next one
+						var thisy = sweepLineIntersection(vert[0], sweepingchains[i][sweepingchains[0]], sweepingchains[i][sweepingchains[0]+1]);
+						
+					  if (testinterval[1] < vert[1] < thisy) {
+						  //inserts into list between i-1 and i.
+						  sweepingchains.splice(i, 0, chains[0]);
+						  break; }
+					  
+					}
+
+					
+
+				}
+			}	
+			
+		}
+		var testchain1 = [[1,6], [4,1], [7,6]];
+		var testchain2 = [[2, 2], [6,2]];
+		monotoneChainIntersection(testchain2, testchain1);
+		
+		//scales vector ab by lambda, treating a as origin. returns scaling of b.
+		function scaleSegment(a, b, lambda){
+			var vector = [b[0]-a[0], b[1]-a[1]];
+			vector = [lambda*vector[0], lambda*vector[1]];
+			return [a[0]+vector[0], a[1]+vector[1]];
+		}
+		
+		
+		//smoothing a chain by clipping off corners. fineness controls how close to the corner we clip.
+		function chainSmooth(chain, fineness){
+			//can't clip too much or all hell breaks loose!
+			if (fineness > 0.5){
+				fineness = 0.5;
+			}
+			
+			var newchain = []
+			var novertices = chain.length;
+			//deals with first vertex as javascript doesn't have negative indexing
+			newchain.push(scaleSegment(chain[0], chain[novertices-2], fineness));
+			newchain.push(scaleSegment(chain[0], chain[1], fineness));
+			for (var i = 1; i < novertices-1; i++) {
+				newchain.push(scaleSegment(chain[i], chain[i-1], fineness));
+				newchain.push(scaleSegment(chain[i], chain[i+1], fineness));
+			}
+			
+			//closes chain up again
+			newchain.push(scaleSegment(chain[0], chain[novertices-2], fineness));
+			return newchain;
+		}
+		
+
+	</script>
+	
+</head>
+<body>
+		<svg width="100%" height="100%" id="page" onclick="pageClick()" ondblclick="startPath()">
+			
+		</svg>
+<script type='text/javascript'>
+
+var testchain = [[0, 0],[50,50],[99, 20], [0,0]];
+var testchain2= [[148, 147], [254, 145], [273, 235], [171, 251], [148, 147]];
+makePLPath(testchain2);
+var testchain3 = [[100, 100], [100, 200], [0, 200], [0, 100], [100,100]];
+
+var trapezchain = [[554, 68],[425, 124], [477, 170], [361, 253],[478, 225],  [416, 301], [469, 350],  [536, 260],  [665, 383],[697, 273], [722, 310], [755, 263],[684, 84],[637, 127],[554, 68]]
+makePLPath(trapezchain);
+sweepDirections(trapezchain);
+trapDecomposition(trapezchain);
+</script>
+	
+</body>
